@@ -1,12 +1,16 @@
 use crate::io::{
-    get_meta_path, AssetReader, AssetReaderError, EmptyPathStream, PathStream, Reader, VecReader,
+    get_meta_path, AssetReader, AssetReaderError, EmptyPathStream, PathStream, Reader, AsyncRead, LocalStackFuture, STACK_FUTURE_SIZE, AsyncSeekForward,
 };
 use bevy_utils::tracing::error;
-use js_sys::{Uint8Array, JSON};
+use js_sys::JSON;
+use core::task::{Poll, Context};
 use std::path::{Path, PathBuf};
 use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::Response;
+use core::pin::Pin;
+
+pub use js_sys::Uint8Array;
 
 /// Represents the global object in the JavaScript context
 #[wasm_bindgen]
@@ -76,8 +80,8 @@ impl HttpWasmAssetReader {
         match resp.status() {
             200 => {
                 let data = JsFuture::from(resp.array_buffer().unwrap()).await.unwrap();
-                let bytes = Uint8Array::new(&data).to_vec();
-                let reader = VecReader::new(bytes);
+                let bytes = Uint8Array::new(&data);
+                let reader = Uint8ArrayReader::new(bytes);
                 Ok(reader)
             }
             404 => Err(AssetReaderError::NotFound(path)),
@@ -109,5 +113,79 @@ impl AssetReader for HttpWasmAssetReader {
     async fn is_directory<'a>(&'a self, _path: &'a Path) -> Result<bool, AssetReaderError> {
         error!("Reading directories is not supported with the HttpWasmAssetReader");
         Ok(false)
+    }
+}
+
+/// An [`AsyncRead`] implementation capable of reading a [`Uint8Array`].
+pub struct Uint8ArrayReader {
+    array: Uint8Array,
+    initial_offset: u32,
+}
+
+impl Uint8ArrayReader {
+    /// Create a new [`Uint8ArrayReader`] for `bytes`.
+    pub fn new(array: Uint8Array) -> Self {
+        Self {
+            initial_offset: array.byte_offset(),
+            array,
+        }
+    }
+}
+
+impl AsyncRead for Uint8ArrayReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &mut [u8],
+    ) -> Poll<futures_io::Result<usize>> {
+        let array_len = self.array.length();
+        let n = u32::min(buf.len() as u32, array_len);
+        self.array.subarray(0, n).copy_to(&mut buf[..n as usize]); // NOTE: copy_to will panic if the lengths do not exactly match
+        self.array = self.array.subarray(n, array_len);
+        Poll::Ready(Ok(n as usize))
+    }
+}
+
+impl AsyncSeekForward for Uint8ArrayReader {
+    fn poll_seek_forward(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context,
+        offset: u64,
+    ) -> Poll<std::io::Result<u64>> {
+        let array_len = self.array.length();
+        let offset_u32 = u32::min(offset as u32, array_len); // NOTE: this trait allows seeking past the end of the internal stream
+        self.array = self.array.subarray(offset_u32, array_len);
+        let new_offset = self.array.byte_offset() - self.initial_offset + offset_u32;
+        Poll::Ready(Ok(new_offset.into()))
+    }
+}
+
+impl Reader for Uint8ArrayReader {
+    fn read_to_end<'a>(
+        &'a mut self,
+        buf: &'a mut Vec<u8>,
+    ) -> LocalStackFuture<'a, std::io::Result<usize>, STACK_FUTURE_SIZE> {
+        #[expect(unsafe_code)]
+        LocalStackFuture::from(async {
+            let n = self.array.length();
+            let n_usize = n as usize;
+
+            buf.reserve_exact(n_usize);
+            let spare_capacity =  buf.spare_capacity_mut();
+            debug_assert!(spare_capacity.len() >= n_usize);
+            // NOTE: `copy_to_uninit` requires the lengths to match exactly,
+            // and `reserve_exact` may reserve more capacity than required.
+            self.array.copy_to_uninit(&mut spare_capacity[..n_usize]);
+            // SAFETY:
+            // * the vector has enough spare capacity for `n` additional bytes due to `reserve_exact` above
+            // * the bytes have been initialized due to `copy_to_uninit` above.
+            unsafe {
+                let new_len = buf.len() + n_usize;
+                buf.set_len(new_len);
+            }
+            self.array = self.array.subarray(n, n);
+
+            Ok(n_usize)
+        })
     }
 }

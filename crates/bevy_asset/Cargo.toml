@@ -19,16 +19,16 @@ watch = []
 trace = []
 
 [dependencies]
-bevy_app = { path = "../bevy_app", version = "0.15.3" }
-bevy_asset_macros = { path = "macros", version = "0.15.3" }
-bevy_ecs = { path = "../bevy_ecs", version = "0.15.3" }
-bevy_reflect = { path = "../bevy_reflect", version = "0.15.3", features = [
+bevy_app = { version = "0.15.3" }
+bevy_asset_macros = { version = "0.15.3" }
+bevy_ecs = { version = "0.15.3" }
+bevy_reflect = { version = "0.15.3", features = [
   "uuid",
 ] }
-bevy_tasks = { path = "../bevy_tasks", version = "0.15.3" }
-bevy_utils = { path = "../bevy_utils", version = "0.15.3" }
+bevy_tasks = { version = "0.15.3" }
+bevy_utils = { version = "0.15.3" }
 
-stackfuture = "0.3"
+stackfuture = { git = "https://github.com/joseph-gio/stackfuture", branch = "local-stack-future" }
 atomicow = "1.0"
 async-broadcast = "0.5"
 async-fs = "2.0"

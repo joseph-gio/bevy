@@ -1,4 +1,4 @@
-use crate::io::{AssetReader, AssetReaderError, PathStream, Reader};
+use crate::io::{AssetReader, AssetReaderError, PathStream, Reader, ConditionalSendStackFuture};
 use alloc::sync::Arc;
 use bevy_utils::HashMap;
 use core::{pin::Pin, task::Poll};
@@ -273,8 +273,8 @@ impl Reader for DataReader {
     fn read_to_end<'a>(
         &'a mut self,
         buf: &'a mut Vec<u8>,
-    ) -> stackfuture::StackFuture<'a, std::io::Result<usize>, { super::STACK_FUTURE_SIZE }> {
-        stackfuture::StackFuture::from(async {
+    ) -> ConditionalSendStackFuture<'a, std::io::Result<usize>, { super::STACK_FUTURE_SIZE }> {
+        ConditionalSendStackFuture::from(async {
             if self.bytes_read >= self.data.value().len() {
                 Ok(0)
             } else {

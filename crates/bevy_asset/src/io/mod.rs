@@ -19,10 +19,11 @@ pub mod wasm;
 mod source;
 
 pub use futures_lite::AsyncWriteExt;
+pub use futures_io::{AsyncRead, AsyncWrite};
 pub use source::*;
 
 use alloc::sync::Arc;
-use bevy_utils::{BoxedFuture, ConditionalSendFuture};
+use bevy_utils::{BoxedFuture, ConditionalSend, ConditionalSendFuture};
 use core::future::Future;
 use core::{
     mem::size_of,
@@ -30,7 +31,6 @@ use core::{
     task::{Context, Poll},
 };
 use derive_more::derive::{Display, Error, From};
-use futures_io::{AsyncRead, AsyncWrite};
 use futures_lite::{ready, Stream};
 use std::path::{Path, PathBuf};
 
@@ -81,7 +81,12 @@ impl From<std::io::Error> for AssetReaderError {
 // a higher maximum necessary.
 pub const STACK_FUTURE_SIZE: usize = 10 * size_of::<&()>();
 
-pub use stackfuture::StackFuture;
+pub use stackfuture::{StackFuture, LocalStackFuture};
+
+#[cfg(target_arch = "wasm32")]
+pub type ConditionalSendStackFuture<'a, T, const STACK_SIZE: usize> = LocalStackFuture<'a, T, STACK_SIZE>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type ConditionalSendStackFuture<'a, T, const STACK_SIZE: usize> = StackFuture<'a, T, STACK_SIZE>;
 
 /// Asynchronously advances the cursor position by a specified number of bytes.
 ///
@@ -161,7 +166,7 @@ impl<S: AsyncSeekForward + Unpin + ?Sized> Future for SeekForwardFuture<'_, S> {
 /// This is essentially a trait alias for types implementing [`AsyncRead`] and [`AsyncSeekForward`].
 /// The only reason a blanket implementation is not provided for applicable types is to allow
 /// implementors to override the provided implementation of [`Reader::read_to_end`].
-pub trait Reader: AsyncRead + AsyncSeekForward + Unpin + Send + Sync {
+pub trait Reader: AsyncRead + AsyncSeekForward + Unpin + ConditionalSend {
     /// Reads the entire contents of this reader and appends them to a vec.
     ///
     /// # Note for implementors
@@ -171,9 +176,9 @@ pub trait Reader: AsyncRead + AsyncSeekForward + Unpin + Send + Sync {
     fn read_to_end<'a>(
         &'a mut self,
         buf: &'a mut Vec<u8>,
-    ) -> StackFuture<'a, std::io::Result<usize>, STACK_FUTURE_SIZE> {
+    ) -> ConditionalSendStackFuture<'a, std::io::Result<usize>, STACK_FUTURE_SIZE> {
         let future = futures_lite::AsyncReadExt::read_to_end(self, buf);
-        StackFuture::from(future)
+        ConditionalSendStackFuture::from(future)
     }
 }
 
@@ -181,7 +186,7 @@ impl Reader for Box<dyn Reader + '_> {
     fn read_to_end<'a>(
         &'a mut self,
         buf: &'a mut Vec<u8>,
-    ) -> StackFuture<'a, std::io::Result<usize>, STACK_FUTURE_SIZE> {
+    ) -> ConditionalSendStackFuture<'a, std::io::Result<usize>, STACK_FUTURE_SIZE> {
         (**self).read_to_end(buf)
     }
 }
@@ -676,8 +681,8 @@ impl Reader for VecReader {
     fn read_to_end<'a>(
         &'a mut self,
         buf: &'a mut Vec<u8>,
-    ) -> StackFuture<'a, std::io::Result<usize>, STACK_FUTURE_SIZE> {
-        StackFuture::from(async {
+    ) -> ConditionalSendStackFuture<'a, std::io::Result<usize>, STACK_FUTURE_SIZE> {
+        ConditionalSendStackFuture::from(async {
             if self.bytes_read >= self.bytes.len() {
                 Ok(0)
             } else {
@@ -750,8 +755,8 @@ impl Reader for SliceReader<'_> {
     fn read_to_end<'a>(
         &'a mut self,
         buf: &'a mut Vec<u8>,
-    ) -> StackFuture<'a, std::io::Result<usize>, STACK_FUTURE_SIZE> {
-        StackFuture::from(async {
+    ) -> ConditionalSendStackFuture<'a, std::io::Result<usize>, STACK_FUTURE_SIZE> {
+        ConditionalSendStackFuture::from(async {
             if self.bytes_read >= self.bytes.len() {
                 Ok(0)
             } else {
