@@ -356,6 +356,9 @@ pub fn impl_param_set(_input: TokenStream) -> TokenStream {
                     if false #(|| !#meta.is_send())* {
                         system_meta.set_non_send();
                     }
+                    if false #(|| #meta.has_deferred())* {
+                        system_meta.set_has_deferred();
+                    }
                     #(
                         system_meta
                             .component_access_set
