@@ -779,6 +779,9 @@ macro_rules! impl_param_set {
                 if false $(|| !$system_meta.is_send())* {
                     system_meta.set_non_send();
                 }
+                if false $(|| !$system_meta.has_deferred())* {
+                    system_meta.set_has_deferred();
+                }
                 $(
                     system_meta
                         .component_access_set
