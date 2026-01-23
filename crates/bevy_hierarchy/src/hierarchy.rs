@@ -55,9 +55,11 @@ fn despawn_with_children_recursive_inner(world: &mut World, entity: Entity, warn
 }
 
 fn despawn_children_recursive(world: &mut World, entity: Entity, warn: bool) {
-    if let Some(children) = world.entity_mut(entity).take::<Children>() {
-        for e in children.0 {
-            despawn_with_children_recursive_inner(world, e, warn);
+    if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+        if let Some(children) = entity_mut.take::<Children>() {
+            for e in children.0 {
+                despawn_with_children_recursive_inner(world, e, warn);
+            }
         }
     }
 }
