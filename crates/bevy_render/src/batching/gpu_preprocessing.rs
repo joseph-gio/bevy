@@ -1107,10 +1107,13 @@ impl FromWorld for GpuPreprocessingSupport {
                 | Features::MULTI_DRAW_INDIRECT
                 | Features::PUSH_CONSTANTS,
         );
+
+        dbg!(device.limits());
+
         // Depth downsampling for occlusion culling requires 12 textures
         // and the early occlusion culling pass requires 9 storage buffers
         let limit_support = device.limits().max_storage_textures_per_shader_stage >= 12 &&
-            device.limits().max_storage_buffers_per_shader_stage >= 8 &&
+            device.limits().max_storage_buffers_per_shader_stage >= 10 &&
             // Even if the adapter supports compute, we might be simulating a lack of
             // compute via device limits (see `WgpuSettingsPriority::WebGL2` and
             // `wgpu::Limits::downlevel_webgl2_defaults()`). This will have set all the
@@ -1137,6 +1140,12 @@ impl FromWorld for GpuPreprocessingSupport {
             info!("GPU preprocessing is fully supported on this device.");
             GpuPreprocessingMode::Culling
         };
+
+        dbg!(match max_supported_mode {
+            GpuPreprocessingMode::None => "No preprocessing support",
+            GpuPreprocessingMode::PreprocessingOnly => "Preprocessing support limited",
+            GpuPreprocessingMode::Culling => "Full preprocessing support"
+        });
 
         GpuPreprocessingSupport { max_supported_mode }
     }
